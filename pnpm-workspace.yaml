@@ -5,3 +5,5 @@ packages:
 allowBuilds:
   '@scarf/scarf': true
   unrs-resolver: false
+  esbuild: true
+  sharp: false

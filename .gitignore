@@ -3,9 +3,27 @@ node_modules/
 dist/
 build/
 coverage/
+
+# Environment Variables
 .env
 .env.*
 !.env.example
 !.env.*.example
+
+# OS & Logs
 .DS_Store
 *.log
+
+# Agent & Local Dev Cache
+.pnpm-store/
+.antigravity/
+.engram/
+.agents/
+graphify-out/
+skills-lock.json
+
+# Temporary Agent Review & Drafting Markdown Files
+*_report.md
+design_draft.md
+concepts_brief.md
+docs/

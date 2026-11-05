@@ -1,355 +1,177 @@
-'use client';
-
-import type { FormEvent } from 'react';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { connectDB } from '@/lib/db';
+import { Notice } from '@/lib/models/notice';
 
-const apiUrl = (
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-).replace(/\/$/, '');
+// Edge ISR revalidation interval: 300 seconds (5 minutes)
+export const revalidate = 300;
 
-type StudentStatus = 'passed' | 'failed' | 'pending';
+interface NoticeItem {
+  _id: string;
+  title: string;
+  content: string;
+  category: 'announcement' | 'exam_schedule' | 'holiday';
+  pinned: boolean;
+  publishedAt: string;
+}
 
-type StudentRecord = {
-  _id?: string;
-  id?: string;
-  name: string;
-  beltRank?: string;
-  nextExamDate?: string;
-  classesRequired: number;
-  classesAttended: number;
-  classesRemaining?: number;
-  status: StudentStatus;
-};
+async function getNotices(): Promise<NoticeItem[]> {
+  try {
+    await connectDB();
+    const notices = await Notice.find()
+      .sort({ pinned: -1, publishedAt: -1 })
+      .lean();
 
-const initialStudents: StudentRecord[] = [
-  {
-    name: 'Aarav Singh',
-    beltRank: 'Yellow Belt',
-    status: 'passed',
-    nextExamDate: '2026-10-20',
-    classesRequired: 10,
-    classesAttended: 7,
-  },
-  {
-    name: 'Maya Patel',
-    beltRank: 'Orange Belt',
-    status: 'failed',
-    nextExamDate: '2026-10-27',
-    classesRequired: 12,
-    classesAttended: 4,
-  },
-  {
-    name: 'Daniel Kim',
-    beltRank: 'Green Belt',
-    status: 'passed',
-    nextExamDate: '2026-11-03',
-    classesRequired: 8,
-    classesAttended: 6,
-  },
-];
-
-const emptyStudentForm = {
-  name: '',
-  beltRank: '',
-  nextExamDate: '',
-  classesRequired: '10',
-  classesAttended: '0',
-  status: 'pending' as StudentStatus,
-};
-
-export default function Home() {
-  const [students, setStudents] = useState(initialStudents);
-  const [role, setRole] = useState<'admin' | 'viewer' | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState(emptyStudentForm);
-  const [message, setMessage] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const token = localStorage.getItem('stsk-token');
-
-    if (!token) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAuthChecked(true);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    async function loadAuthenticatedDashboard() {
-      let authenticated = false;
-
-      try {
-        const response = await fetch(`${apiUrl}/auth/me`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) {
-          throw new Error('Your session has expired. Please sign in again.');
-        }
-
-        const user = await response.json();
-        if (cancelled) return;
-        setRole(user.role);
-        authenticated = true;
-      } catch (error) {
-        if (cancelled) return;
-        localStorage.removeItem('stsk-token');
-        setRole(null);
-        setMessage(error instanceof Error ? error.message : 'Could not verify your session.');
-      }
-
-      if (authenticated) {
-        try {
-          const response = await fetch(`${apiUrl}/students`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-
-          if (!response.ok) {
-            throw new Error('Could not load student records.');
-          }
-
-          const records: StudentRecord[] = await response.json();
-          if (!cancelled) setStudents(records);
-        } catch (error) {
-          if (!cancelled) {
-            setMessage(error instanceof Error ? error.message : 'Could not load student records.');
-          }
-        }
-      }
-
-      if (!cancelled) setAuthChecked(true);
-    }
-
-    void loadAuthenticatedDashboard();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function handleCreateStudent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const token = localStorage.getItem('stsk-token');
-
-    if (!token) {
-      setMessage('Please sign in again before adding a student.');
-      return;
-    }
-
-    setSaving(true);
-    setMessage('');
-
-    try {
-      const response = await fetch(`${apiUrl}/students`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          beltRank: form.beltRank.trim() || undefined,
-          nextExamDate: form.nextExamDate || undefined,
-          classesRequired: Number(form.classesRequired),
-          classesAttended: Number(form.classesAttended),
-          status: form.status,
-        }),
-      });
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Could not add student.');
-      }
-
-      setStudents((current) => [result, ...current]);
-      setForm(emptyStudentForm);
-      setFormOpen(false);
-      setMessage(`${result.name} was added.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not add student.');
-    } finally {
-      setSaving(false);
-    }
+    return notices.map((n) => ({
+      _id: n._id.toString(),
+      title: n.title,
+      content: n.content,
+      category: n.category,
+      pinned: Boolean(n.pinned),
+      publishedAt: n.publishedAt ? new Date(n.publishedAt).toISOString() : new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.error('Error fetching public notices in ISR:', error);
+    return [];
   }
+}
 
-  const passedCount = students.filter((student) => student.status === 'passed').length;
-  const failedCount = students.filter((student) => student.status === 'failed').length;
-  const nextExamDate = students
-    .map((student) => student.nextExamDate)
-    .filter((date): date is string => Boolean(date))
-    .sort()[0];
+export default async function PublicNoticeBoardPage() {
+  const notices = await getNotices();
 
   return (
-    <main className="dashboard-shell">
-      <header className="topbar">
+    <main className="dashboard-shell notice-page-shell">
+      <header className="topbar" style={{ marginBottom: '24px' }}>
         <div>
-          <p className="eyebrow">Karate exam dashboard</p>
-          <h1>Student progress overview</h1>
+          <p className="eyebrow">Shotokan Karate Academy</p>
+          <h1>Academy Notices & Schedule</h1>
+          <p style={{ color: 'var(--muted)', marginTop: '4px' }}>
+            Official announcements, belt grading dates, and holiday schedules.
+          </p>
         </div>
-        {authChecked && role === 'admin' ? (
-          <button
-            aria-expanded={formOpen}
-            className="primary-button student-add-button"
-            onClick={() => {
-              setFormOpen((open) => !open);
-              setMessage('');
-            }}
-            type="button"
-          >
-            <span aria-hidden="true" className="plus-icon">+</span>
-            Add student details
-          </button>
-        ) : authChecked && role === 'viewer' ? (
-          <span className="role-label">Viewer access</span>
-        ) : authChecked ? (
-          <Link className="primary-button" href="/login">
-            Admin login
+        <div>
+          <Link href="/dashboard" className="primary-button" style={{ fontSize: '0.9rem' }}>
+            Instructor Portal &rarr;
           </Link>
-        ) : null}
+        </div>
       </header>
 
-      <section className="stats-grid">
-        <article className="stat-card">
-          <span>Total students</span>
-          <strong>{students.length}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Passed</span>
-          <strong>{passedCount}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Failed</span>
-          <strong>{failedCount}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Next exam</span>
-          <strong>{nextExamDate ?? '—'}</strong>
-        </article>
-      </section>
-
-      {formOpen && role === 'admin' ? (
-        <section aria-labelledby="student-form-title" className="student-entry">
-          <div className="student-entry-header">
-            <h2 id="student-form-title">Add student details</h2>
-            <button
-              className="secondary-button"
-              onClick={() => setFormOpen(false)}
-              type="button"
-            >
-              Cancel
-            </button>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {notices.length === 0 ? (
+          <div className="panel" style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <p style={{ color: 'var(--muted)', fontSize: '1.1rem' }}>
+              No current notices posted. Check back soon for upcoming belt exams and holiday dates.
+            </p>
           </div>
-          <form className="student-form" onSubmit={handleCreateStudent}>
-            <label>
-              Student name
-              <input
-                autoComplete="name"
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-                required
-                value={form.name}
-              />
-            </label>
-            <label>
-              Belt rank
-              <input
-                onChange={(event) => setForm({ ...form, beltRank: event.target.value })}
-                placeholder="e.g. Yellow Belt"
-                value={form.beltRank}
-              />
-            </label>
-            <label>
-              Next exam date
-              <input
-                onChange={(event) => setForm({ ...form, nextExamDate: event.target.value })}
-                type="date"
-                value={form.nextExamDate}
-              />
-            </label>
-            <label>
-              Classes required
-              <input
-                min="0"
-                onChange={(event) => setForm({ ...form, classesRequired: event.target.value })}
-                required
-                type="number"
-                value={form.classesRequired}
-              />
-            </label>
-            <label>
-              Classes attended
-              <input
-                min="0"
-                onChange={(event) => setForm({ ...form, classesAttended: event.target.value })}
-                required
-                type="number"
-                value={form.classesAttended}
-              />
-            </label>
-            <label>
-              Exam result
-              <select
-                onChange={(event) => setForm({ ...form, status: event.target.value as StudentStatus })}
-                value={form.status}
+        ) : (
+          notices.map((notice) => {
+            const isExam = notice.category === 'exam_schedule';
+            const isHoliday = notice.category === 'holiday';
+
+            const badgeBg = isExam
+              ? 'var(--warning-soft)'
+              : isHoliday
+              ? '#fee2e2'
+              : 'var(--success-soft)';
+            const badgeColor = isExam
+              ? 'var(--warning)'
+              : isHoliday
+              ? '#991b1b'
+              : 'var(--success)';
+            const categoryLabel = isExam
+              ? 'Belt Exam'
+              : isHoliday
+              ? 'Holiday Closure'
+              : 'Announcement';
+
+            return (
+              <article
+                key={notice._id}
+                className="panel"
+                style={{
+                  borderLeft: notice.pinned ? '5px solid var(--primary)' : '1px solid var(--line)',
+                  position: 'relative',
+                }}
               >
-                <option value="pending">Pending</option>
-                <option value="passed">Passed</option>
-                <option value="failed">Failed</option>
-              </select>
-            </label>
-            <div className="student-form-actions">
-              <p>
-                Classes remaining: {Math.max(0, Number(form.classesRequired) - Number(form.classesAttended))}
-              </p>
-              <button className="primary-button" disabled={saving} type="submit">
-                {saving ? 'Adding...' : 'Add student'}
-              </button>
-            </div>
-          </form>
-        </section>
-      ) : null}
-
-      {message ? <p aria-live="polite" className="status-message">{message}</p> : null}
-
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Upcoming exam list</h2>
-          <span>{role ?? 'Overview'}</span>
-        </div>
-
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Student</th>
-                <th>Belt rank</th>
-                <th>Status</th>
-                <th>Next exam</th>
-                <th>Classes left</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((student) => (
-                <tr key={student._id ?? student.id ?? student.name}>
-                  <td>{student.name}</td>
-                  <td>{student.beltRank || '—'}</td>
-                  <td>
-                    <span className={`chip ${student.status === 'passed' ? 'success' : 'warning'}`}>
-                      {student.status}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: '12px',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        background: badgeBg,
+                        color: badgeColor,
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}
+                    >
+                      {categoryLabel}
                     </span>
-                  </td>
-                  <td>{student.nextExamDate || '—'}</td>
-                  <td>{student.classesRemaining ?? Math.max(0, student.classesRequired - student.classesAttended)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    {notice.pinned && (
+                      <span
+                        style={{
+                          background: 'rgba(29, 78, 216, 0.1)',
+                          color: 'var(--primary)',
+                          padding: '4px 10px',
+                          borderRadius: '999px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                        }}
+                      >
+                        📌 Pinned
+                      </span>
+                    )}
+                  </div>
+                  <time
+                    dateTime={notice.publishedAt}
+                    style={{ color: 'var(--muted)', fontSize: '0.85rem' }}
+                  >
+                    {new Date(notice.publishedAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </time>
+                </div>
+
+                <h2 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>{notice.title}</h2>
+                <div
+                  style={{
+                    color: 'var(--text)',
+                    lineHeight: 1.6,
+                    whiteSpace: 'pre-wrap',
+                    fontSize: '0.98rem',
+                  }}
+                >
+                  {notice.content}
+                </div>
+              </article>
+            );
+          })
+        )}
       </section>
+
+      {/* Fixed Bottom Footer */}
+      <footer className="notice-fixed-footer">
+        <div className="notice-fixed-footer-inner">
+          <p>&copy; {new Date().getFullYear()} Shotokan Karate Academy. All rights reserved.</p>
+          <p style={{ marginTop: '4px' }}>
+            Instructor access:{' '}
+            <Link href="/login" style={{ color: 'var(--primary)', fontWeight: 600 }}>
+              Sign in here
+            </Link>
+          </p>
+        </div>
+      </footer>
     </main>
   );
 }

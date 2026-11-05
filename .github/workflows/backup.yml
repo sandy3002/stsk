@@ -1,0 +1,35 @@
+name: Weekly Database Backup
+
+on:
+  schedule:
+    # Runs every Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
+
+jobs:
+  backup:
+    name: Backup MongoDB Atlas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install MongoDB Database Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mongodb-database-tools
+
+      - name: Execute mongodump
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          if [ -z "$MONGODB_URI" ]; then
+            echo "MONGODB_URI secret is not configured."
+            exit 1
+          fi
+          TIMESTAMP=$(date +'%Y-%m-%d_%H%M%S')
+          mongodump --uri="$MONGODB_URI" --gzip --archive="stsk-backup-$TIMESTAMP.gz"
+
+      - name: Upload Backup Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stsk-database-backup
+          path: stsk-backup-*.gz
+          retention-days: 90
