@@ -299,11 +299,19 @@ export default function NoticesManagementPage() {
                 Content *
                 <textarea
                   required
-                  rows={5}
+                  rows={3}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="Details of the announcement, dates, requirements..."
-                  style={{ padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', font: 'inherit' }}
+                  style={{
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--line)',
+                    font: 'inherit',
+                    minHeight: '75px',
+                    maxHeight: '160px',
+                    resize: 'vertical',
+                  }}
                 />
               </label>
 

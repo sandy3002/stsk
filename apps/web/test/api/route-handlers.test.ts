@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 process.env.SESSION_SECRET = 'test-secret-that-is-at-least-32-characters-long-1234567890';
 
 import { signSession, verifySession, SESSION_COOKIE_NAME } from '@/lib/session';
-import { middleware } from '@/middleware';
+import { proxy as middleware } from '@/proxy';
 
 describe('Edge Session Auth & Middleware Integration', () => {
   const adminPayload = {
